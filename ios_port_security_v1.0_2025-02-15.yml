@@ -1,0 +1,53 @@
+---
+# Playbook: ios_port_security
+# Version: 1.0
+# Date: 2025-02-15
+# Description: Find shutdown interfaces and apply port-security sticky with max 4
+# Usage: ansible-playbook -i inventory.ini ios_port_security_v1.0_2025-02-15.yml -u cisco -k -K
+
+- name: Apply port-security to shutdown interfaces
+  hosts: switch
+  gather_facts: no
+  connection: network_cli
+
+  vars:
+    ansible_network_os: cisco.ios.ios
+    ansible_host: 10.1.4.184
+    ansible_become: yes
+    ansible_become_method: enable
+    ansible_ssh_common_args: '-o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes256-cbc -o MACs=+hmac-sha1'
+
+  tasks:
+    - name: Gather interface facts
+      cisco.ios.ios_facts:
+        gather_subset:
+          - interfaces
+
+    - name: Show which interfaces are shutdown
+      debug:
+        msg: "SHUTDOWN: {{ item.key }}"
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      when:
+        - item.value.operstatus is defined
+        - item.value.operstatus == 'down'
+        - "'GigabitEthernet' in item.key or 'FastEthernet' in item.key"
+
+    - name: Apply port-security to shutdown interfaces
+      cisco.ios.ios_config:
+        lines:
+          - switchport mode access
+          - switchport port-security
+          - switchport port-security mac-address sticky
+          - switchport port-security maximum 4
+        parents: "interface {{ item.key }}"
+      loop: "{{ ansible_net_interfaces | dict2items }}"
+      when:
+        - item.value.operstatus is defined
+        - item.value.operstatus == 'down'
+        - "'GigabitEthernet' in item.key or 'FastEthernet' in item.key"
+
+    - name: Save running config to startup
+      cisco.ios.ios_command:
+        commands:
+          - write mem
+          
